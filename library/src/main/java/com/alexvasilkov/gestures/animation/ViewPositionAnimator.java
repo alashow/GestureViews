@@ -4,6 +4,7 @@ import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.support.annotation.FloatRange;
 import android.support.annotation.NonNull;
+import android.support.v4.view.ViewCompat;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
@@ -260,6 +261,7 @@ public class ViewPositionAnimator {
         fromView = from;
         fromPosHolder.init(from, fromPositionListener);
         from.setVisibility(View.INVISIBLE); // We don't want duplicate view during animation
+        ViewCompat.setAlpha(fromView, 0.0f);
     }
 
     private void updateInternal(@NonNull ViewPosition from) {
@@ -282,6 +284,7 @@ public class ViewPositionAnimator {
 
         if (fromView != null) {
             fromView.setVisibility(View.VISIBLE); // Switching back to visible
+            ViewCompat.setAlpha(fromView, 1.0f);
         }
         if (toClipView != null) {
             toClipView.clipView(null, 0f);
