@@ -5,7 +5,7 @@ import android.support.v4.view.ViewPager;
 import android.view.Menu;
 import android.view.MenuItem;
 
-import com.alexvasilkov.android.commons.utils.Views;
+import com.alexvasilkov.android.commons.ui.Views;
 import com.alexvasilkov.gestures.sample.R;
 import com.alexvasilkov.gestures.sample.adapters.PaintingsLayoutsPagerAdapter;
 import com.alexvasilkov.gestures.sample.logic.Painting;
@@ -49,7 +49,7 @@ public class Ex2FrameLayoutSampleActivity extends BaseActivity {
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         if (settingsMenu.onOptionsItemSelected(item)) {
-            invalidateOptionsMenu();
+            supportInvalidateOptionsMenu();
             viewPager.getAdapter().notifyDataSetChanged();
             return true;
         } else {

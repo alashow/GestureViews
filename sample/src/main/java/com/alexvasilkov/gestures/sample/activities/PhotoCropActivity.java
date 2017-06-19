@@ -10,7 +10,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 
 import com.alexvasilkov.android.commons.state.InstanceState;
-import com.alexvasilkov.android.commons.utils.Views;
+import com.alexvasilkov.android.commons.ui.Views;
 import com.alexvasilkov.gestures.GestureController;
 import com.alexvasilkov.gestures.Settings;
 import com.alexvasilkov.gestures.State;
@@ -93,7 +93,7 @@ public class PhotoCropActivity extends BaseActivity {
     private void setFinderShape(FinderShape shape) {
         finderShape = shape;
         applyFinderShape(true);
-        invalidateOptionsMenu();
+        supportInvalidateOptionsMenu();
     }
 
     @Override

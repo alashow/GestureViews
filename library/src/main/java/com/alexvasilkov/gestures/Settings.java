@@ -46,7 +46,7 @@ public class Settings {
     private float maxZoom = MAX_ZOOM;
 
     /*
-     * Double tap zoom level, default value is -1. Defaults to {@link #maxZoom} if < 0.
+     * Double tap zoom level, default value is -1. Defaults to {@link #maxZoom} if <= 0.
      */
     private float doubleTapZoom = -1f;
 
@@ -170,11 +170,12 @@ public class Settings {
     }
 
     /**
-     * Setting double tap zoom level. Defaults to {@link #maxZoom} if < 0.
+     * Setting double tap zoom level, should not be greater than {@link #getMaxZoom()}.
+     * Defaults to {@link #getMaxZoom()} if <= 0.
      * <p/>
      * Default value is -1.
      */
-    public Settings setDoubleTapZoom(float doubleTapZoom){
+    public Settings setDoubleTapZoom(float doubleTapZoom) {
         this.doubleTapZoom = doubleTapZoom;
         return this;
     }
@@ -373,6 +374,9 @@ public class Settings {
         return this;
     }
 
+    /**
+     * Duration of animations.
+     */
     public Settings setAnimationsDuration(long duration) {
         if (duration < 0L) {
             throw new IllegalArgumentException("Animations duration should be >= 0");

@@ -88,14 +88,15 @@ public class StateController {
      * @return End state for toggle animation.
      */
     State toggleMinMaxZoom(State state, float pivotX, float pivotY) {
-        ZoomBounds zoomBounds = getZoomBounds(state);
+        final ZoomBounds zoomBounds = getZoomBounds(state);
         final float minZoom = zoomBounds.getMinZoom();
-        final float maxZoom = settings.getDoubleTapZoom() > 0f ? settings.getDoubleTapZoom() : zoomBounds.getMaxZoom();
+        final float maxZoom = settings.getDoubleTapZoom() > 0f
+                ? settings.getDoubleTapZoom() : zoomBounds.getMaxZoom();
 
-        final float middleZoom = (minZoom + maxZoom) / 2f;
+        final float middleZoom = 0.5f * (minZoom + maxZoom);
         final float targetZoom = state.getZoom() < middleZoom ? maxZoom : minZoom;
 
-        State end = state.copy();
+        final State end = state.copy();
         end.zoomTo(targetZoom, pivotX, pivotY);
         return end;
     }
@@ -279,7 +280,7 @@ public class StateController {
      */
     @SuppressWarnings({ "unused", "WeakerAccess" }) // Public API
     public float getMaxZoom(State state) {
-        return getZoomBounds(state).getMinZoom();
+        return getZoomBounds(state).getMaxZoom();
     }
 
     /**

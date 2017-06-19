@@ -22,6 +22,7 @@ import com.alexvasilkov.gestures.utils.FloatScroller;
 import com.alexvasilkov.gestures.utils.GravityUtils;
 import com.alexvasilkov.gestures.utils.MathUtils;
 import com.alexvasilkov.gestures.views.GestureImageView;
+import com.alexvasilkov.gestures.views.interfaces.ClipBounds;
 import com.alexvasilkov.gestures.views.interfaces.ClipView;
 import com.alexvasilkov.gestures.views.interfaces.GestureView;
 
@@ -65,6 +66,7 @@ public class ViewPositionAnimator {
 
     private final GestureController toController;
     private final ClipView toClipView;
+    private final ClipBounds toClipBounds;
 
     private final State fromState = new State();
     private final State toState = new State();
@@ -74,7 +76,9 @@ public class ViewPositionAnimator {
     private float toPivotY;
     private final RectF fromClip = new RectF();
     private final RectF toClip = new RectF();
-    private final RectF clipRect = new RectF();
+    private final RectF fromBoundsClip = new RectF();
+    private final RectF toBoundsClip = new RectF();
+    private final RectF clipRectTmp = new RectF();
     private ViewPosition fromPos;
     private ViewPosition toPos;
     private boolean fromNonePos;
@@ -99,27 +103,28 @@ public class ViewPositionAnimator {
     private final ViewPositionHolder toPosHolder = new ViewPositionHolder();
 
     private final ViewPositionHolder.OnViewPositionChangeListener fromPositionListener =
-            new ViewPositionHolder.OnViewPositionChangeListener() {
-                @Override
-                public void onViewPositionChanged(@NonNull ViewPosition position) {
-                    if (GestureDebug.isDebugAnimator()) {
-                        Log.d(TAG, "'From' view position updated: " + position.pack());
-                    }
-
-                    fromPos = position;
-                    requestUpdateFromState();
-                    applyCurrentPosition();
+        new ViewPositionHolder.OnViewPositionChangeListener() {
+            @Override
+            public void onViewPositionChanged(@NonNull ViewPosition position) {
+                if (GestureDebug.isDebugAnimator()) {
+                    Log.d(TAG, "'From' view position updated: " + position.pack());
                 }
-            };
+
+                fromPos = position;
+                requestUpdateFromState();
+                applyCurrentPosition();
+            }
+        };
 
 
     public ViewPositionAnimator(@NonNull GestureView to) {
-        if (!(to instanceof View)) {
+        if (! (to instanceof View)) {
             throw new IllegalArgumentException("Argument 'to' should be an instance of View");
         }
 
         View toView = (View) to;
         toClipView = to instanceof ClipView ? (ClipView) to : null;
+        toClipBounds = to instanceof ClipBounds ? (ClipBounds) to : null;
         animationEngine = new LocalAnimationEngine(toView);
 
         toController = to.getController();
@@ -131,7 +136,7 @@ public class ViewPositionAnimator {
 
             @Override
             public void onStateReset(State oldState, State newState) {
-                if (!isActivated) {
+                if (! isActivated) {
                     return;
                 }
 
@@ -157,6 +162,10 @@ public class ViewPositionAnimator {
                 applyCurrentPosition();
             }
         });
+
+        // Position updates are paused by default, until animation is started
+        fromPosHolder.pause(true);
+        toPosHolder.pause(true);
     }
 
     /**
@@ -172,7 +181,7 @@ public class ViewPositionAnimator {
         }
 
         enterInternal(withAnimation);
-        updateInternal((ViewPosition) null);
+        updateInternal();
     }
 
     /**
@@ -229,6 +238,18 @@ public class ViewPositionAnimator {
     }
 
     /**
+     * Updates position of initial view to no specific position, in case 'to' view is not available
+     * anymore.
+     */
+    public void updateToNone() {
+        if (GestureDebug.isDebugAnimator()) {
+            Log.d(TAG, "Updating view to no specific position");
+        }
+
+        updateInternal();
+    }
+
+    /**
      * Starts 'exit' animation from {@code to} view back to {@code from}.
      */
     public void exit(boolean withAnimation) {
@@ -236,12 +257,12 @@ public class ViewPositionAnimator {
             Log.d(TAG, "Exiting, with animation = " + withAnimation);
         }
 
-        if (!isActivated) {
+        if (! isActivated) {
             throw new IllegalStateException("You should call enter(...) before calling exit(...)");
         }
 
         // Resetting 'to' position if not animating exit already
-        if (!(isAnimating && position <= toPosition)) {
+        if (! (isAnimating && position <= toPosition)) {
             setToState(toController.getState(), position);
         }
 
@@ -260,32 +281,33 @@ public class ViewPositionAnimator {
     }
 
     private void updateInternal(@NonNull View from) {
-        if (!isActivated) {
-            throw new IllegalStateException(
-                    "You should call enter(...) before calling update(...)");
-        }
-
-        cleanup();
-        requestUpdateFromState();
-
+        cleanBeforeUpdateInternal();
         fromView = from;
         fromPosHolder.init(from, fromPositionListener);
         from.setVisibility(View.INVISIBLE); // We don't want duplicate view during animation
         ViewCompat.setAlpha(fromView, 0.0f);
     }
 
-    private void updateInternal(@Nullable ViewPosition from) {
-        if (!isActivated) {
+    private void updateInternal(@NonNull ViewPosition from) {
+        cleanBeforeUpdateInternal();
+        fromPos = from;
+        applyCurrentPosition();
+    }
+
+    private void updateInternal() {
+        cleanBeforeUpdateInternal();
+        fromNonePos = true;
+        applyCurrentPosition();
+    }
+
+    private void cleanBeforeUpdateInternal() {
+        if (! isActivated) {
             throw new IllegalStateException(
-                    "You should call enter(...) before calling update(...)");
+                "You should call enter(...) before calling update(...)");
         }
 
         cleanup();
         requestUpdateFromState();
-
-        fromPos = from;
-        fromNonePos = from == null;
-        applyCurrentPosition();
     }
 
     private void cleanup() {
@@ -433,10 +455,10 @@ public class ViewPositionAnimator {
      * or {@link #enter(ViewPosition, boolean)} again in order to continue using animator.
      */
     public void setState(@FloatRange(from = 0f, to = 1f) float pos,
-            boolean leaving, boolean animate) {
-        if (!isActivated) {
+                         boolean leaving, boolean animate) {
+        if (! isActivated) {
             throw new IllegalStateException(
-                    "You should call enter(...) before calling setState(...)");
+                "You should call enter(...) before calling setState(...)");
         }
 
         stopAnimation();
@@ -449,7 +471,7 @@ public class ViewPositionAnimator {
     }
 
     private void applyCurrentPosition() {
-        if (!isActivated) {
+        if (! isActivated) {
             return;
         }
 
@@ -466,16 +488,16 @@ public class ViewPositionAnimator {
         toPosHolder.pause(paused);
 
         // Perform state updates if needed
-        if (!isToUpdated) {
+        if (! isToUpdated) {
             updateToState();
         }
-        if (!isFromUpdated) {
+        if (! isFromUpdated) {
             updateFromState();
         }
 
         if (GestureDebug.isDebugAnimator()) {
             Log.d(TAG, "Applying state: " + position + " / " + isLeaving
-                    + ", 'to' ready = " + isToUpdated + ", 'from' ready = " + isFromUpdated);
+                + ", 'to' ready = " + isToUpdated + ", 'from' ready = " + isFromUpdated);
         }
 
         boolean canUpdate = position < toPosition || (isAnimating && position == toPosition);
@@ -483,19 +505,27 @@ public class ViewPositionAnimator {
             State state = toController.getState();
 
             MathUtils.interpolate(state, fromState, fromPivotX, fromPivotY,
-                    toState, toPivotX, toPivotY, position / toPosition);
+                toState, toPivotX, toPivotY, position / toPosition);
 
             toController.updateState();
 
-            MathUtils.interpolate(clipRect, fromClip, toClip, position / toPosition);
+            final boolean skipClip = position >= toPosition || (position == 0f && isLeaving);
+            final float clipPosition = position / toPosition;
+
             if (toClipView != null) {
-                boolean skipClip = position >= toPosition || (position == 0f && isLeaving);
-                toClipView.clipView(skipClip ? null : clipRect, state.getRotation());
+                MathUtils.interpolate(clipRectTmp, fromClip, toClip, clipPosition);
+                toClipView.clipView(skipClip ? null : clipRectTmp, state.getRotation());
+            }
+            if (toClipBounds != null) {
+                // Bounds clipping should stay longer in 'From' state
+                final float boundsClipPos = clipPosition * clipPosition;
+                MathUtils.interpolate(clipRectTmp, fromBoundsClip, toBoundsClip, boundsClipPos);
+                toClipBounds.clipBounds(skipClip ? null : clipRectTmp);
             }
         }
 
         iteratingListeners = true;
-        for (int i = 0, size = listeners.size(); i < size; i++) {
+        for(int i = 0, size = listeners.size(); i < size; i++) {
             if (isApplyingPositionScheduled) {
                 break; // No need to call listeners anymore
             }
@@ -533,8 +563,8 @@ public class ViewPositionAnimator {
     private void startAnimationInternal() {
         long duration = toController.getSettings().getAnimationsDuration();
         float durationFraction = toPosition == 1f
-                ? (isLeaving ? position : 1f - position)
-                : (isLeaving ? position / toPosition : (1f - position) / (1f - toPosition));
+            ? (isLeaving ? position : 1f - position)
+            : (isLeaving ? position / toPosition : (1f - position) / (1f - toPosition));
 
         positionScroller.setDuration((long) (duration * durationFraction));
         positionScroller.startScroll(position, isLeaving ? 0f : 1f);
@@ -573,7 +603,7 @@ public class ViewPositionAnimator {
     }
 
     private void onAnimationStopped() {
-        if (!isAnimating) {
+        if (! isAnimating) {
             return;
         }
         isAnimating = false;
@@ -606,7 +636,7 @@ public class ViewPositionAnimator {
 
         Settings settings = toController == null ? null : toController.getSettings();
 
-        if (toPos == null || settings == null || !settings.hasImageSize()) {
+        if (toPos == null || settings == null || ! settings.hasImageSize()) {
             return;
         }
 
@@ -624,9 +654,12 @@ public class ViewPositionAnimator {
         toPivotY = tmpPointArr[1];
 
         // Computing clip rect in 'To' view coordinates without rotation
-        tmpMatrix.postRotate(-toState.getRotation(), toPivotX, toPivotY);
+        tmpMatrix.postRotate(- toState.getRotation(), toPivotX, toPivotY);
         tmpMatrix.mapRect(toClip);
         toClip.offset(toPos.viewport.left - toPos.view.left, toPos.viewport.top - toPos.view.top);
+
+        // 'To' bounds clip is entire 'To' view rect in 'To' view coordinates
+        toBoundsClip.set(0f, 0f, toPos.view.width(), toPos.view.height());
 
         isToUpdated = true;
 
@@ -650,7 +683,7 @@ public class ViewPositionAnimator {
             ViewPosition.apply(fromPos, tmpPoint);
         }
 
-        if (toPos == null || fromPos == null || settings == null || !settings.hasImageSize()) {
+        if (toPos == null || fromPos == null || settings == null || ! settings.hasImageSize()) {
             return;
         }
 
@@ -672,9 +705,22 @@ public class ViewPositionAnimator {
 
         fromState.set(fromX, fromY, zoom, 0f);
 
-        // 'From' clip is a 'From' view rect in 'To' view coordinates
+        // 'From' clip is 'From' view rect in 'To' view coordinates
         fromClip.set(fromPos.viewport);
-        fromClip.offset(-toPos.view.left, -toPos.view.top);
+        fromClip.offset(- toPos.view.left, - toPos.view.top);
+
+        // 'From' bounds clip is a part of 'To' view which considered to be visible.
+        // Meaning that if 'From' view is truncated in any direction this clipping should be
+        // animated, otherwise it will look like part of 'From' view is instantly becoming visible.
+        fromBoundsClip.set(0f, 0f, toPos.view.width(), toPos.view.height());
+        fromBoundsClip.left = compareAndSetClipBound(
+            fromBoundsClip.left, fromPos.view.left, fromPos.visible.left, toPos.view.left);
+        fromBoundsClip.top = compareAndSetClipBound(
+            fromBoundsClip.top, fromPos.view.top, fromPos.visible.top, toPos.view.top);
+        fromBoundsClip.right = compareAndSetClipBound(
+            fromBoundsClip.right, fromPos.view.right, fromPos.visible.right, toPos.view.left);
+        fromBoundsClip.bottom = compareAndSetClipBound(
+            fromBoundsClip.bottom, fromPos.view.bottom, fromPos.visible.bottom, toPos.view.top);
 
         isFromUpdated = true;
 
@@ -683,6 +729,14 @@ public class ViewPositionAnimator {
         }
     }
 
+    private float compareAndSetClipBound(float origBound, int viewPos, int visiblePos, int offset) {
+        // Comparing allowing slack of 1 pixel
+        if (- 1 <= viewPos - visiblePos && viewPos - visiblePos <= 1) {
+            return origBound; // View is fully visible in this direction, no extra bounds
+        } else {
+            return visiblePos - offset; // Returning 'From' view bound in 'To' view coordinates
+        }
+    }
 
     private class LocalAnimationEngine extends AnimationEngine {
         LocalAnimationEngine(@NonNull View view) {
@@ -691,7 +745,7 @@ public class ViewPositionAnimator {
 
         @Override
         public boolean onStep() {
-            if (!positionScroller.isFinished()) {
+            if (! positionScroller.isFinished()) {
                 positionScroller.computeScroll();
                 position = positionScroller.getCurr();
                 applyCurrentPosition();
@@ -709,12 +763,11 @@ public class ViewPositionAnimator {
 
     public interface PositionUpdateListener {
         /**
-         * @param position Position within range {@code [0, 1]}, where {@code 0} is for
-         * initial (from) position and {@code 1} is for final (to) position.
+         * @param position  Position within range {@code [0, 1]}, where {@code 0} is for
+         *                  initial (from) position and {@code 1} is for final (to) position.
          * @param isLeaving {@code false} if transitioning from initial to final position
-         * (entering) or {@code true} for reverse transition.
+         *                  (entering) or {@code true} for reverse transition.
          */
         void onPositionUpdate(float position, boolean isLeaving);
     }
-
 }

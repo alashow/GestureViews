@@ -11,12 +11,11 @@ import android.support.v7.widget.Toolbar;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.alexvasilkov.android.commons.state.InstanceState;
 import com.alexvasilkov.android.commons.texts.SpannableBuilder;
-import com.alexvasilkov.android.commons.utils.Views;
+import com.alexvasilkov.android.commons.ui.Views;
 import com.alexvasilkov.events.Events;
 import com.alexvasilkov.events.Events.Failure;
 import com.alexvasilkov.events.Events.Result;
@@ -30,10 +29,9 @@ import com.alexvasilkov.gestures.sample.adapters.PhotoPagerAdapter;
 import com.alexvasilkov.gestures.sample.logic.FlickrApi;
 import com.alexvasilkov.gestures.sample.utils.DecorUtils;
 import com.alexvasilkov.gestures.sample.utils.GestureSettingsMenu;
-import com.alexvasilkov.gestures.transition.SimpleViewsTracker;
-import com.alexvasilkov.gestures.transition.ViewsCoordinator;
+import com.alexvasilkov.gestures.transition.GestureTransitions;
 import com.alexvasilkov.gestures.transition.ViewsTransitionAnimator;
-import com.alexvasilkov.gestures.transition.ViewsTransitionBuilder;
+import com.alexvasilkov.gestures.transition.tracker.SimpleTracker;
 import com.googlecode.flickrjandroid.photos.Photo;
 
 import java.util.List;
@@ -80,7 +78,7 @@ public class Ex6AdvancedDemoActivity extends BaseActivity implements
         initAnimator();
 
         if (savedPagerPosition != NO_POSITION) {
-            // Photo was show in pager, we should switch to pager mode instantly
+            // Photo was shown in pager, we should switch to pager mode instantly
             onPositionUpdate(1f, false);
         }
     }
@@ -110,7 +108,7 @@ public class Ex6AdvancedDemoActivity extends BaseActivity implements
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         if (settingsMenu.onOptionsItemSelected(item)) {
-            invalidateOptionsMenu();
+            supportInvalidateOptionsMenu();
             return true;
         } else {
             return super.onOptionsItemSelected(item);
@@ -140,7 +138,6 @@ public class Ex6AdvancedDemoActivity extends BaseActivity implements
     private void initDecorMargins() {
         // Adjusting margins and paddings to fit translucent decor
         DecorUtils.paddingForStatusBar(views.toolbar, true);
-        DecorUtils.paddingForStatusBar(views.toolbarBack, true);
         DecorUtils.paddingForStatusBar(views.pagerToolbar, true);
         DecorUtils.marginForStatusBar(views.grid);
         DecorUtils.paddingForNavBar(views.grid);
@@ -208,36 +205,24 @@ public class Ex6AdvancedDemoActivity extends BaseActivity implements
     }
 
     private void initAnimator() {
-        animator = new ViewsTransitionBuilder<Integer>()
-                .fromRecyclerView(views.grid, new SimpleViewsTracker() {
-                    @Override
-                    public View getViewForPosition(int position) {
-                        RecyclerView.ViewHolder holder =
-                                views.grid.findViewHolderForLayoutPosition(position);
-                        return holder == null ? null : PhotoListAdapter.getImage(holder);
-                    }
-                })
-                .intoViewPager(views.pager, new SimpleViewsTracker() {
-                    @Override
-                    public View getViewForPosition(int position) {
-                        RecyclePagerAdapter.ViewHolder holder = pagerAdapter.getViewHolder(
-                                position);
-                        return holder == null ? null : PhotoPagerAdapter.getImage(holder);
-                    }
-                })
-                .build();
-        animator.addPositionUpdateListener(this);
-        animator.setReadyListener(new ViewsCoordinator.OnViewsReadyListener<Integer>() {
+        final SimpleTracker gridTracker = new SimpleTracker() {
             @Override
-            public void onViewsReady(@NonNull Integer id) {
-                // Setting image drawable from 'from' view to 'to' to prevent flickering
-                ImageView from = (ImageView) animator.getFromView();
-                ImageView to = (ImageView) animator.getToView();
-                if (to.getDrawable() == null) {
-                    to.setImageDrawable(from.getDrawable());
-                }
+            public View getViewAt(int pos) {
+                RecyclerView.ViewHolder holder = views.grid.findViewHolderForLayoutPosition(pos);
+                return holder == null ? null : PhotoListAdapter.getImage(holder);
             }
-        });
+        };
+
+        final SimpleTracker pagerTracker = new SimpleTracker() {
+            @Override
+            public View getViewAt(int pos) {
+                RecyclePagerAdapter.ViewHolder holder = pagerAdapter.getViewHolder(pos);
+                return holder == null ? null : PhotoPagerAdapter.getImage(holder);
+            }
+        };
+
+        animator = GestureTransitions.from(views.grid, gridTracker).into(views.pager, pagerTracker);
+        animator.addPositionUpdateListener(this);
     }
 
     private void onPhotoInPagerSelected(int position) {
@@ -264,9 +249,6 @@ public class Ex6AdvancedDemoActivity extends BaseActivity implements
     public void onPositionUpdate(float position, boolean isLeaving) {
         views.pagerBackground.setVisibility(position == 0f ? View.INVISIBLE : View.VISIBLE);
         views.pagerBackground.getBackground().setAlpha((int) (255 * position));
-
-        views.toolbar.setVisibility(position == 1f ? View.INVISIBLE : View.VISIBLE);
-        views.toolbar.setAlpha((float) Math.sqrt(1d - position)); // Slow down toolbar animation
 
         views.pagerToolbar.setVisibility(position == 0f ? View.INVISIBLE : View.VISIBLE);
         views.pagerToolbar.setAlpha(position);
@@ -342,7 +324,6 @@ public class Ex6AdvancedDemoActivity extends BaseActivity implements
 
     private class ViewHolder {
         final Toolbar toolbar;
-        final View toolbarBack;
         final RecyclerView grid;
 
         final ViewPager pager;
@@ -352,7 +333,6 @@ public class Ex6AdvancedDemoActivity extends BaseActivity implements
 
         ViewHolder(Activity activity) {
             toolbar = Views.find(activity, R.id.toolbar);
-            toolbarBack = Views.find(activity, R.id.advanced_toolbar_back);
             grid = Views.find(activity, R.id.advanced_grid);
 
             pager = Views.find(activity, R.id.advanced_pager);

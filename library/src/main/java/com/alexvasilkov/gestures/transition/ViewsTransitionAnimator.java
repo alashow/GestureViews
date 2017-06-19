@@ -1,13 +1,17 @@
 package com.alexvasilkov.gestures.transition;
 
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.util.Log;
 import android.view.View;
+import android.widget.ImageView;
 
 import com.alexvasilkov.gestures.animation.ViewPosition;
 import com.alexvasilkov.gestures.animation.ViewPositionAnimator;
 import com.alexvasilkov.gestures.animation.ViewPositionAnimator.PositionUpdateListener;
 import com.alexvasilkov.gestures.internal.GestureDebug;
+import com.alexvasilkov.gestures.transition.tracker.FromTracker;
+import com.alexvasilkov.gestures.transition.tracker.IntoTracker;
 import com.alexvasilkov.gestures.views.interfaces.AnimatorView;
 
 import java.util.ArrayList;
@@ -22,43 +26,60 @@ import java.util.List;
  */
 public class ViewsTransitionAnimator<ID> extends ViewsCoordinator<ID> {
 
+    private static final Object NONE = new Object();
+
     private static final String TAG = ViewsTransitionAnimator.class.getSimpleName();
 
     private final List<PositionUpdateListener> listeners = new ArrayList<>();
 
-    private ID enterId;
-    private boolean isReady;
     private boolean enterWithAnimation;
+    private boolean isEntered;
 
     private boolean exitRequested;
     private boolean exitWithAnimation;
 
+    /**
+     * @deprecated Use {@link GestureTransitions} instead.
+     */
     @SuppressWarnings("WeakerAccess") // Public API
+    @Deprecated
     public ViewsTransitionAnimator() {
         addPositionUpdateListener(new PositionUpdateListener() {
             @Override
             public void onPositionUpdate(float position, boolean isLeaving) {
                 if (position == 0f && isLeaving) {
-                    clear();
+                    cleanupRequest();
                 }
             }
         });
     }
 
     /**
-     * Requests 'from' and 'to' views for given id
-     * (see {@link OnRequestViewListener#onRequestView(Object)}),
-     * and starts enter animation when both views are ready.
+     * Requests 'from' and 'to' views for given ID and starts enter animation when views are ready.
+     *
+     * @see ViewsCoordinator
      */
     public void enter(@NonNull ID id, boolean withAnimation) {
         if (GestureDebug.isDebugAnimator()) {
             Log.d(TAG, "Enter requested for " + id + ", with animation = " + withAnimation);
         }
 
-        clear();
-        enterId = id;
         enterWithAnimation = withAnimation;
         request(id);
+    }
+
+    /**
+     * Similar to {@link #enter(Object, boolean) enter(ID, boolean)} but starts entering from no
+     * specific id.<br/>
+     * <b>Do not use this method if you are actually going to use items ids in {@link FromTracker}
+     * or {@link IntoTracker}.</b><p/>
+     * Can be used if your have single 'from' item with no specific id, like:<br/>
+     * {@code GestureTransitions.from(imageView).into(gestureImageView).enterSingle(true)}
+     */
+    @SuppressWarnings("unchecked")
+    public void enterSingle(boolean withAnimation) {
+        // Passing 'NONE' Object instead of ID. Will fail if ID will be actually used.
+        enter((ID) NONE, withAnimation);
     }
 
     /**
@@ -68,12 +89,13 @@ public class ViewsTransitionAnimator<ID> extends ViewsCoordinator<ID> {
      * @see #isLeaving()
      */
     public void exit(boolean withAnimation) {
-        if (enterId == null) {
+        if (getRequestedId() == null) {
             throw new IllegalStateException("You should call enter(...) before calling exit(...)");
         }
 
         if (GestureDebug.isDebugAnimator()) {
-            Log.d(TAG, "Exit requested from " + enterId + ", with animation = " + withAnimation);
+            Log.d(TAG, "Exit requested from " + getRequestedId()
+                    + ", with animation = " + withAnimation);
         }
 
         exitRequested = true;
@@ -82,11 +104,11 @@ public class ViewsTransitionAnimator<ID> extends ViewsCoordinator<ID> {
     }
 
     private void exitIfRequested() {
-        if (exitRequested && isReady) {
+        if (exitRequested && isReady()) {
             exitRequested = false;
 
             if (GestureDebug.isDebugAnimator()) {
-                Log.d(TAG, "Perform exit from " + enterId);
+                Log.d(TAG, "Perform exit from " + getRequestedId());
             }
 
             getToView().getPositionAnimator().exit(exitWithAnimation);
@@ -98,89 +120,95 @@ public class ViewsTransitionAnimator<ID> extends ViewsCoordinator<ID> {
      * Means that animation direction is from final (to) position back to initial (from) position.
      */
     public boolean isLeaving() {
-        return exitRequested || enterId == null || (isReady
-                && getToView() != null && getToView().getPositionAnimator().isLeaving());
+        return exitRequested || getRequestedId() == null
+                || (isReady() && getToView().getPositionAnimator().isLeaving());
+    }
+
+
+    /**
+     * Adds listener to the set of position updates listeners that will be notified during
+     * any position changes.
+     *
+     * @see ViewPositionAnimator#addPositionUpdateListener(PositionUpdateListener)
+     */
+    public void addPositionUpdateListener(@NonNull PositionUpdateListener listener) {
+        listeners.add(listener);
+        if (isReady()) {
+            getToView().getPositionAnimator().addPositionUpdateListener(listener);
+        }
+    }
+
+    /**
+     * Removes listener added by {@link #addPositionUpdateListener(PositionUpdateListener)}.
+     *
+     * @see ViewPositionAnimator#removePositionUpdateListener(PositionUpdateListener)
+     */
+    @SuppressWarnings("unused") // Public API
+    public void removePositionUpdateListener(@NonNull PositionUpdateListener listener) {
+        listeners.remove(listener);
+        if (isReady()) {
+            getToView().getPositionAnimator().removePositionUpdateListener(listener);
+        }
+    }
+
+
+    @Override
+    public void setFromListener(@NonNull OnRequestViewListener<ID> listener) {
+        super.setFromListener(listener);
+        if (listener instanceof RequestListener) {
+            ((RequestListener<ID>) listener).initAnimator(this);
+        }
     }
 
     @Override
-    public void setFromNone(@NonNull ID id) {
-        if (enterId == null || !enterId.equals(id)) {
-            return;
+    public void setToListener(@NonNull OnRequestViewListener<ID> listener) {
+        super.setToListener(listener);
+        if (listener instanceof RequestListener) {
+            ((RequestListener<ID>) listener).initAnimator(this);
         }
-
-        super.setFromNone(id);
     }
 
     @Override
-    public void setFromView(@NonNull ID id, @NonNull View fromView) {
-        if (enterId == null || !enterId.equals(id)) {
-            return;
-        }
+    protected void onFromViewChanged(@Nullable View fromView, @Nullable ViewPosition fromPos) {
+        super.onFromViewChanged(fromView, fromPos);
 
-        boolean wasReady = isReady;
-
-        super.setFromView(id, fromView);
-
-        if (wasReady) {
+        if (isReady()) {
             if (GestureDebug.isDebugAnimator()) {
-                Log.d(TAG, "Updating 'from' view for " + enterId);
+                Log.d(TAG, "Updating 'from' view for " + getRequestedId());
             }
-            getToView().getPositionAnimator().update(fromView);
-        }
-    }
 
-    @Override
-    public void setFromPos(@NonNull ID id, @NonNull ViewPosition fromPos) {
-        if (enterId == null || !enterId.equals(id)) {
-            return;
-        }
-
-        boolean wasReady = isReady;
-
-        super.setFromPos(id, fromPos);
-
-        if (wasReady) {
-            if (GestureDebug.isDebugAnimator()) {
-                Log.d(TAG, "Updating 'from' pos for " + enterId);
-            }
-            getToView().getPositionAnimator().update(fromPos);
-        }
-    }
-
-    @Override
-    public void setToView(@NonNull ID id, @NonNull AnimatorView toView) {
-        if (enterId == null || !enterId.equals(id)) {
-            return;
-        }
-
-        AnimatorView old = getToView();
-
-        if (old != toView) {
-            if (old != null && isReady) {
-                // Animation is in place, we should carefully swap animators
-                swapAnimator(old.getPositionAnimator(), toView.getPositionAnimator());
+            if (fromView != null) {
+                getToView().getPositionAnimator().update(fromView);
+            } else if (fromPos != null) {
+                getToView().getPositionAnimator().update(fromPos);
             } else {
-                if (old != null) {
-                    cleanupAnimator(old.getPositionAnimator());
-                }
-                initAnimator(toView.getPositionAnimator());
+                getToView().getPositionAnimator().updateToNone();
             }
         }
+    }
 
-        super.setToView(id, toView);
+    @Override
+    protected void onToViewChanged(@Nullable AnimatorView old, @NonNull AnimatorView view) {
+        super.onToViewChanged(old, view);
+
+        if (isReady() && old != null) {
+            // Animation is in place, we should carefully swap animators
+            swapAnimator(old.getPositionAnimator(), view.getPositionAnimator());
+        } else {
+            if (old != null) {
+                cleanupAnimator(old.getPositionAnimator());
+            }
+            initAnimator(view.getPositionAnimator());
+        }
     }
 
     @Override
     protected void onViewsReady(@NonNull ID id) {
-        if (enterId == null || !enterId.equals(id)) {
-            return;
-        }
-
-        if (!isReady) {
-            isReady = true;
+        if (!isEntered) {
+            isEntered = true;
 
             if (GestureDebug.isDebugAnimator()) {
-                Log.d(TAG, "Ready to enter for " + enterId);
+                Log.d(TAG, "Ready to enter for " + getRequestedId());
             }
 
             if (getFromView() != null) {
@@ -194,34 +222,30 @@ public class ViewsTransitionAnimator<ID> extends ViewsCoordinator<ID> {
             exitIfRequested();
         }
 
+        if (getFromView() instanceof ImageView && getToView() instanceof ImageView) {
+            // Pre-setting 'to' image with 'from' image to prevent flickering
+            ImageView from = (ImageView) getFromView();
+            ImageView to = (ImageView) getToView();
+            if (to.getDrawable() == null) {
+                to.setImageDrawable(from.getDrawable());
+            }
+        }
+
         super.onViewsReady(id);
     }
 
-    /**
-     * Adds listener to the set of position updates listeners that will be notified during
-     * any position changes.
-     *
-     * @see ViewPositionAnimator#addPositionUpdateListener(PositionUpdateListener)
-     */
-    public void addPositionUpdateListener(@NonNull PositionUpdateListener listener) {
-        listeners.add(listener);
-        if (isReady) {
-            getToView().getPositionAnimator().addPositionUpdateListener(listener);
+    @Override
+    protected void cleanupRequest() {
+        if (getToView() != null) {
+            cleanupAnimator(getToView().getPositionAnimator());
         }
+
+        isEntered = false;
+        exitRequested = false;
+
+        super.cleanupRequest();
     }
 
-    /**
-     * Removes listener added by {@link #addPositionUpdateListener(PositionUpdateListener)}.
-     *
-     * @see ViewPositionAnimator#removePositionUpdateListener(PositionUpdateListener)
-     */
-    @SuppressWarnings("unused") // Public API
-    public void removePositionUpdateListener(@NonNull PositionUpdateListener listener) {
-        listeners.remove(listener);
-        if (isReady) {
-            getToView().getPositionAnimator().removePositionUpdateListener(listener);
-        }
-    }
 
     private void initAnimator(ViewPositionAnimator animator) {
         for (PositionUpdateListener listener : listeners) {
@@ -236,7 +260,7 @@ public class ViewsTransitionAnimator<ID> extends ViewsCoordinator<ID> {
 
         if (!animator.isLeaving() || animator.getPosition() != 0f) {
             if (GestureDebug.isDebugAnimator()) {
-                Log.d(TAG, "Exiting from cleaned animator for " + enterId);
+                Log.d(TAG, "Exiting from cleaned animator for " + getRequestedId());
             }
 
             animator.exit(false);
@@ -252,7 +276,7 @@ public class ViewsTransitionAnimator<ID> extends ViewsCoordinator<ID> {
         final boolean isAnimating = old.isAnimating();
 
         if (GestureDebug.isDebugAnimator()) {
-            Log.d(TAG, "Swapping animator for " + enterId);
+            Log.d(TAG, "Swapping animator for " + getRequestedId());
         }
 
         cleanupAnimator(old);
@@ -268,14 +292,17 @@ public class ViewsTransitionAnimator<ID> extends ViewsCoordinator<ID> {
         next.setState(position, isLeaving, isAnimating);
     }
 
-    private void clear() {
-        if (getToView() != null) {
-            cleanupAnimator(getToView().getPositionAnimator());
+
+    public abstract static class RequestListener<ID> implements OnRequestViewListener<ID> {
+        private ViewsTransitionAnimator<ID> animator;
+
+        protected void initAnimator(ViewsTransitionAnimator<ID> animator) {
+            this.animator = animator;
         }
-        enterId = null;
-        isReady = false;
-        exitRequested = false;
-        cleanupRequest();
+
+        protected ViewsTransitionAnimator<ID> getAnimator() {
+            return animator;
+        }
     }
 
 }
